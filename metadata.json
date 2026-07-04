@@ -1,0 +1,6 @@
+{
+  "name": "Purchase Tracker",
+  "description": "Keep track of daily purchases with custom units, prices, and query history.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
