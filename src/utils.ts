@@ -1,4 +1,15 @@
 import { Purchase } from './types';
+import { isFirebaseConfigured, getFirestoreDb } from './firebase';
+import {
+  collection,
+  getDocs,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  query,
+  orderBy,
+} from 'firebase/firestore';
 
 // Helper to format rupees currency nicely
 export function formatRupees(amount: number): string {
@@ -78,28 +89,85 @@ export const SAMPLE_PURCHASES: Purchase[] = [
   },
 ];
 
-// Initialize local storage with sample purchases if empty
+const PURCHASE_COLLECTION = 'purchases';
+
+// Read all purchases from localStorage as a fallback
 export function getSavedPurchases(): Purchase[] {
-  try {
-    const saved = localStorage.getItem('purchase_records');
-    if (!saved) {
-      localStorage.setItem('purchase_records', JSON.stringify(SAMPLE_PURCHASES));
+  if (!isFirebaseConfigured) {
+    try {
+      const saved = localStorage.getItem('purchase_records');
+      if (!saved) {
+        localStorage.setItem('purchase_records', JSON.stringify(SAMPLE_PURCHASES));
+        return SAMPLE_PURCHASES;
+      }
+      return JSON.parse(saved);
+    } catch (error) {
+      console.error('Error reading localStorage', error);
       return SAMPLE_PURCHASES;
     }
-    return JSON.parse(saved);
-  } catch (error) {
-    console.error('Error reading localStorage', error);
-    return SAMPLE_PURCHASES;
   }
+
+  console.warn('Firebase is configured, but getSavedPurchases should be replaced with Firestore queries.');
+  return SAMPLE_PURCHASES;
 }
 
-// Save purchases to local storage
+// Save purchases to local storage as a fallback
 export function savePurchases(purchases: Purchase[]): void {
-  try {
-    localStorage.setItem('purchase_records', JSON.stringify(purchases));
-  } catch (error) {
-    console.error('Error saving to localStorage', error);
+  if (!isFirebaseConfigured) {
+    try {
+      localStorage.setItem('purchase_records', JSON.stringify(purchases));
+    } catch (error) {
+      console.error('Error saving to localStorage', error);
+    }
+    return;
   }
+
+  console.warn('Firebase is configured, but savePurchases should be replaced with Firestore writes.');
+}
+
+export async function fetchPurchasesFromFirestore(): Promise<Purchase[]> {
+  const db = getFirestoreDb();
+  const purchasesCol = collection(db, PURCHASE_COLLECTION);
+  const purchasesQuery = query(purchasesCol, orderBy('date', 'desc'));
+  const snapshot = await getDocs(purchasesQuery);
+
+  return snapshot.docs.map((docSnap) => ({
+    ...(docSnap.data() as Omit<Purchase, 'id'>),
+    id: docSnap.id,
+  }));
+}
+
+export async function addPurchaseToFirestore(purchase: Purchase) {
+  const db = getFirestoreDb();
+  await addDoc(collection(db, PURCHASE_COLLECTION), {
+    itemName: purchase.itemName,
+    quantity: purchase.quantity,
+    unit: purchase.unit,
+    pricePerUnit: purchase.pricePerUnit,
+    totalPrice: purchase.totalPrice,
+    date: purchase.date,
+    notes: purchase.notes || '',
+  });
+}
+
+export async function updatePurchaseInFirestore(id: string, purchase: Omit<Purchase, 'id'>) {
+  const db = getFirestoreDb();
+  const purchaseDoc = doc(db, PURCHASE_COLLECTION, id);
+  await updateDoc(purchaseDoc, {
+    itemName: purchase.itemName,
+    quantity: purchase.quantity,
+    unit: purchase.unit,
+    pricePerUnit: purchase.pricePerUnit,
+    totalPrice: purchase.totalPrice,
+    date: purchase.date,
+    notes: purchase.notes || '',
+  });
+}
+
+export async function deletePurchaseFromFirestore(id: string) {
+  const db = getFirestoreDb();
+  const purchaseDoc = doc(db, PURCHASE_COLLECTION, id);
+  await deleteDoc(purchaseDoc);
 }
 
 // Standard unit suggestions

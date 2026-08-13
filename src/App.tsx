@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Purchase } from './types';
-import { getSavedPurchases, savePurchases, formatRupees } from './utils';
+import { isFirebaseConfigured } from './firebase';
+import {
+  getSavedPurchases,
+  savePurchases,
+  formatRupees,
+  fetchPurchasesFromFirestore,
+  addPurchaseToFirestore,
+  updatePurchaseInFirestore,
+  deletePurchaseFromFirestore,
+} from './utils';
 import AddPurchaseForm from './components/AddPurchaseForm';
 import PurchaseList from './components/PurchaseList';
 import PurchaseStats from './components/PurchaseStats';
@@ -19,48 +28,88 @@ export default function App() {
   // Custom date/time filter preset
   const [timeFilter, setTimeFilter] = useState<'all' | '7days' | '30days'>('all');
 
-  // Load purchases initially
+  // Load purchases initially using Firestore when configured
   useEffect(() => {
-    setPurchases(getSavedPurchases());
+    const load = async () => {
+      if (isFirebaseConfigured) {
+        try {
+          const firestorePurchases = await fetchPurchasesFromFirestore();
+          setPurchases(firestorePurchases);
+        } catch (error) {
+          console.error('Failed to load purchases from Firestore:', error);
+          setPurchases(getSavedPurchases());
+        }
+      } else {
+        setPurchases(getSavedPurchases());
+      }
+    };
+
+    load();
   }, []);
 
-  // Update localStorage when purchases change
-  const handleSetPurchases = (newPurchases: Purchase[]) => {
-    setPurchases(newPurchases);
-    savePurchases(newPurchases);
-  };
-
   // Add new purchase
-  const handleAddPurchase = (purchaseData: Omit<Purchase, 'id'>) => {
+  const handleAddPurchase = async (purchaseData: Omit<Purchase, 'id'>) => {
     const newPurchase: Purchase = {
       ...purchaseData,
       id: `p-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     };
-    const updated = [newPurchase, ...purchases];
-    handleSetPurchases(updated);
-    
-    // Auto focus the added item in the trend graph!
+
+    if (isFirebaseConfigured) {
+      try {
+        await addPurchaseToFirestore(newPurchase);
+        const firestorePurchases = await fetchPurchasesFromFirestore();
+        setPurchases(firestorePurchases);
+      } catch (error) {
+        console.error('Failed to add purchase to Firestore:', error);
+      }
+    } else {
+      const updated = [newPurchase, ...purchases];
+      setPurchases(updated);
+      savePurchases(updated);
+    }
+
     setSelectedItemName(newPurchase.itemName);
   };
 
   // Update existing purchase
-  const handleUpdatePurchase = (id: string, updatedData: Omit<Purchase, 'id'>) => {
-    const updated = purchases.map((p) => (p.id === id ? { ...p, ...updatedData } : p));
-    handleSetPurchases(updated);
-    setEditingPurchase(null);
+  const handleUpdatePurchase = async (id: string, updatedData: Omit<Purchase, 'id'>) => {
+    if (isFirebaseConfigured) {
+      try {
+        await updatePurchaseInFirestore(id, updatedData);
+        const firestorePurchases = await fetchPurchasesFromFirestore();
+        setPurchases(firestorePurchases);
+      } catch (error) {
+        console.error('Failed to update purchase in Firestore:', error);
+      }
+    } else {
+      const updated = purchases.map((p) => (p.id === id ? { ...p, ...updatedData } : p));
+      setPurchases(updated);
+      savePurchases(updated);
+    }
 
-    // Auto focus the updated item in the trend graph!
+    setEditingPurchase(null);
     setSelectedItemName(updatedData.itemName);
   };
 
   // Delete purchase
-  const handleDeletePurchase = (id: string) => {
-    const updated = purchases.filter((p) => p.id !== id);
-    handleSetPurchases(updated);
+  const handleDeletePurchase = async (id: string) => {
+    if (isFirebaseConfigured) {
+      try {
+        await deletePurchaseFromFirestore(id);
+        const firestorePurchases = await fetchPurchasesFromFirestore();
+        setPurchases(firestorePurchases);
+      } catch (error) {
+        console.error('Failed to delete purchase from Firestore:', error);
+      }
+    } else {
+      const updated = purchases.filter((p) => p.id !== id);
+      setPurchases(updated);
+      savePurchases(updated);
+    }
 
-    // Reset selection if the deleted purchase item has no other records left
     const deletedItemName = purchases.find((p) => p.id === id)?.itemName;
     if (deletedItemName) {
+      const updated = purchases.filter((p) => p.id !== id);
       const remainingWithSameName = updated.some(
         (p) => p.itemName.toLowerCase() === deletedItemName.toLowerCase()
       );
